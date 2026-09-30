@@ -21,6 +21,13 @@ function favicon () {
   return utils.extractFilename(config.get('application.favicon'))
 }
 
+function sanitizeForPug (str: string | undefined) {
+  if (!str) return str
+  str = str.replace(/[\r\n\u2028\u2029]+/g, '')
+  str = str.replace(/(?<!\\)#{/g, '\\#{').replace(/(?<!\\)!{/g, '\\!{')
+  return str.startsWith('\\') ? str : '\\' + str
+}
+
 export function getUserProfile () {
   return async (req: Request, res: Response, next: NextFunction) => {
     let template: string
@@ -51,6 +58,10 @@ export function getUserProfile () {
 
     let username = user.username
 
+    if (username) {
+      username = username.replace(/[\r\n\u2028\u2029]+/g, '')
+    }
+
     if (username?.match(/#{(.*)}/) !== null && utils.isChallengeEnabled(challenges.usernameXssChallenge)) {
       req.app.locals.abused_ssti_bug = true
       const code = username?.substring(2, username.length - 1)
@@ -73,12 +84,15 @@ export function getUserProfile () {
         if (!isSafe) {
           throw new Error('Unsafe code execution blocked')
         }
-        username = eval(code) // eslint-disable-line no-eval
+        username = String(eval(code)).replace(/[\r\n\u2028\u2029]+/g, '') // eslint-disable-line no-eval
+        if (username.trimStart().startsWith('-') || username.trimStart().startsWith('=')) {
+          username = '\\' + username
+        }
       } catch (err) {
-        username = '\\' + username
+        username = sanitizeForPug(username)
       }
     } else {
-      username = '\\' + username
+      username = sanitizeForPug(username)
     }
 
     const themeKey = config.get<string>('application.theme') as keyof typeof themes
